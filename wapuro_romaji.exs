@@ -27,6 +27,7 @@ defmodule WapuroRamaji do
 
   @mapping mapping
   @geminates ~w(kk ss tt pp cch)
+  @obsolete ~w(wi we)
   @digraph_suffixes %{
     "a" => "ゃ",
     "u" => "ゅ",
@@ -37,30 +38,42 @@ defmodule WapuroRamaji do
 
   ## Translation
 
-  def translate(str) do
-    _translate(str, "")
+  def translate(str, opts \\ []) do
+    opts = Keyword.put_new(opts, :allow_obsolete, false)
+    _translate(str, "", opts)
   end
 
-  defp _translate("", acc) do
+  defp _translate("", acc, _opts) do
     acc
+  end
+
+  defp _translate("\n" <> rest, acc, opts) do
+    _translate(rest, acc <> "\n", opts)
   end
 
   ## Handle Geminates
   Enum.each(@geminates, fn geminate ->
-    defp _translate(unquote(" " <> geminate) <> _rest, _acc) do
+    defp _translate(unquote(" " <> geminate) <> _rest, _acc, _opts) do
       :error
     end
 
-    defp _translate(unquote(geminate) <> rest, acc) do
+    defp _translate(unquote(geminate) <> rest, acc, opts) do
       if @debug, do: IO.inspect {:geminate, unquote(geminate)}
       {_, last} = String.split_at(unquote(geminate), 1)
-      _translate(last <> rest, acc <> "っ")
+      _translate(last <> rest, acc <> "っ", opts)
     end
   end)
 
-  defp _translate(" " <> rest, acc) do
-    _translate(rest, acc)
+  defp _translate(" " <> rest, acc, opts) do
+    _translate(rest, acc, opts)
   end
+
+  ## Handle Obsolete
+  Enum.each(@obsolete, fn k ->
+    defp _translate(unquote(k) <> _rest, _acc, allow_obsolete: false) do
+      :error
+    end
+  end)
 
   Enum.each(@mapping, fn {k, v} ->
     ## Handle Digraphs
@@ -68,16 +81,16 @@ defmodule WapuroRamaji do
       Enum.each(@digraph_suffixes, fn {digraph_k, digraph_v} ->
         new_k = String.trim_trailing(k, "i")
         if WapuroRamaji.Digraph.y_digraph?(k) do
-          defp _translate(unquote(new_k <> "y" <> digraph_k) <> rest, acc) do
-            _translate(rest, acc <> unquote(v <> digraph_v))
+          defp _translate(unquote(new_k <> "y" <> digraph_k) <> rest, acc, opts) do
+            _translate(rest, acc <> unquote(v <> digraph_v), opts)
           end
         else
-          defp _translate(unquote(new_k <> "y" <> digraph_k ) <> _rest, _acc) do
+          defp _translate(unquote(new_k <> "y" <> digraph_k ) <> _rest, _acc, _opts) do
             :error
           end
 
-          defp _translate(unquote(new_k <> digraph_k) <> rest, acc) do
-            _translate(rest, acc <> unquote(v <> digraph_v))
+          defp _translate(unquote(new_k <> digraph_k) <> rest, acc, opts) do
+            _translate(rest, acc <> unquote(v <> digraph_v), opts)
           end
         end
       end)
@@ -85,21 +98,21 @@ defmodule WapuroRamaji do
   end)
 
   Enum.each(@mapping, fn {k, v} ->
-    defp _translate(unquote(k) <> rest, acc) do
+    defp _translate(unquote(k) <> rest, acc, opts) do
       if @debug, do: IO.inspect {unquote(k), unquote(v)}
-      _translate(rest, acc <> unquote(v))
+      _translate(rest, acc <> unquote(v), opts)
     end
   end)
 
-  defp _translate(_, _) do
+  defp _translate(_, _, _) do
     :error
   end
 end
 
 defmodule Test do
-  def assert_translates(str, expected) do
+  def assert_translates(str, expected, opts \\ []) do
     IO.inspect("=== Testing #{str} => #{expected} ===")
-    case WapuroRamaji.translate(str) do
+    case WapuroRamaji.translate(str, opts) do
       ^expected -> IO.inspect {:passed, str, expected}
       actual -> IO.inspect {:failed, str, expected, actual}
     end
@@ -137,3 +150,24 @@ digraph_test_cases = %{
 }
 Enum.each(digraph_test_cases, fn {k, v} -> Test.assert_translates(k, v) end)
 
+iroha = ~s"""
+iro ha nihoheto
+chirinuru wo
+wa ka yo tare so
+tsune naramu
+uwi no okuyama
+kefu koete
+asaki yume mishi
+wehi mo sesu
+"""
+iroha_translated = ~s"""
+いろはにほへと
+ちりぬるを
+わかよたれそ
+つねならむ
+うゐのおくやま
+けふこえて
+あさきゆめみし
+ゑひもせす
+"""
+Test.assert_translates(iroha, iroha_translated, allow_obsolete: true)
